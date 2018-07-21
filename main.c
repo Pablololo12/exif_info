@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define BUFF_SIZE 10000
+#define BUFF_SIZE 4000
 #define FIRST_DIRECTORY_OFFSET 18
 #define OFFSET_START_OFFSET 10
 
@@ -94,33 +94,73 @@ static TagTable_t TagTable[] = {
   {   0xA217,  "SensingMethod"},
   {   0xA300,  "FileSource"},
   {   0xA301,  "SceneType"},
+  {   0x9214,  "SubjectLocation"},
+  {   0xa000,  "FlashPixVersion"},
   {      0, "Not recognized"}
 } ;
 
 static unsigned int app1_size = 0;
 static unsigned int offset_start = 0;
 
-int show_data(unsigned char * buffer, unsigned int index, unsigned int size)
+int show_data(unsigned char * buffer, unsigned int index, unsigned int size,
+				unsigned char type)
 {
 	unsigned int i;
-	for (i=0; i<size; i++) {
-		printf("%c",buffer[index+i]);
+	if(type==2){//String
+		for (i=0; i<size; i++)
+			printf("%c",buffer[index+i]);
+	} else if(type==1||type==6){//Byte
+		for (i=0; i<size; i++)
+			printf("%d ",buffer[index+i]);
+	} else if(type==3||type==8){
+		for (i=0; i<size; i+=2) {
+			if(type==3) printf("%u ",buffer[index+i]<<8|buffer[index+i+1]);
+			else printf("%d ",buffer[index+i]<<8|buffer[index+i+1]);
+		}
+	} else if(type==4||type==9){
+		for (i=0; i<size; i+=4) {
+			uint32_t aux = buffer[index+i]<<24|buffer[index+i+1]<<16|
+								buffer[index+i+2]<<8|buffer[index+i+3];
+			if (type==4) printf("%u ", aux);
+			else printf("%d ", aux);
+		}
+	} else if(type==5||type==10){
+		for (i=0; i<size; i+=8) {
+			int32_t aux1 = buffer[index+i]<<24|buffer[index+i+1]<<16|
+								buffer[index+i+2]<<8|buffer[index+i+3];
+			int32_t aux2 = buffer[index+i+4]<<24|buffer[index+i+5]<<16|
+								buffer[index+i+6]<<8|buffer[index+i+7];
+			float aux = (float)aux1/aux2;
+			printf("%.3f ", aux);
+		}
+	} else {
+		printf("Data type %d not recognized yet", type);
 	}
 	printf("\n");
+
 	return 1;
 }
-	
 
-int list_info(unsigned char *buffer, unsigned int index, unsigned int size)
+int delete_data(unsigned char *buffer, unsigned int index, unsigned int size)
+{
+	unsigned int i;
+	for(i=0; i<size; ++i)
+		buffer[index+i]=0x0;
+	return 1;
+}
+
+int list_info(unsigned char *buffer, unsigned int index,
+				unsigned int size, char delete)
 {
 	unsigned int i,d,j;
 	unsigned int exifoffset = 0;
+	unsigned int byte_size = 0;
 	d = index;
-	printf("Number of entries: %d\n",size);
+	//printf("Number of entries: %d\n",size);
 	for (i=0; i<size; i++) {
 		unsigned short tag = buffer[d]<<8|buffer[d+1];
 		d+=2;
-		//unsigned char format = buffer[d]<<8|buffer[d+1];
+		unsigned char format = buffer[d]<<8|buffer[d+1];
 		d+=2;
 		unsigned int data_size = buffer[d]<<24|buffer[d+1]<<16
 								|buffer[d+2]<<8|buffer[d+3];
@@ -128,34 +168,49 @@ int list_info(unsigned char *buffer, unsigned int index, unsigned int size)
 		unsigned long data = buffer[d]<<24|buffer[d+1]<<16
 							|buffer[d+2]<<8|buffer[d+3];
 		d+=4;
-		for(j=0;;j++){
+		for(j=0;!delete;j++){
 			if(TagTable[j].Tag == tag || TagTable[j].Tag == 0){
-				printf("%X: %s : ",tag, TagTable[j].Desc);
+				printf("%s : ", TagTable[j].Desc);
 				if(tag == 0x8769) exifoffset = data;
 				break;
 			}
 		}
-		if(data_size<=4) {
-			printf("%ld\n", data);
+		if(format==10||format==5)
+			byte_size = data_size*8;
+		else if(format==9||format==4)
+			byte_size = data_size*4;
+		else if(format==8||format==3)
+			byte_size = data_size*2;
+		else if(format==7||format==6||format==2||format==1)
+			byte_size = data_size;
+		else
+			byte_size = 1;
+
+		if(byte_size<=4) {
+			if (!delete) show_data(buffer, d-4, data_size, format);
+			else delete_data(buffer, d-4, data_size*byte_size);
 		} else {
-			show_data(buffer,offset_start+data,data_size);;
+			if (!delete) show_data(buffer,offset_start+data,data_size, format);
+			else delete_data(buffer,offset_start+data, data_size*byte_size);
 		}
 	}
 	if(exifoffset != 0){
 		exifoffset+=offset_start;
 		list_info(buffer,
-				exifoffset+2, buffer[exifoffset]<<8|buffer[exifoffset+1]);
+				exifoffset+2,
+				buffer[exifoffset]<<8|buffer[exifoffset+1],
+				delete);
 	}
 	return 1;
 }
 
-int read_info(char *name)
+int read_info(char *name, char delete)
 {
 	FILE *image;
 	unsigned char *buffer;
 	unsigned int i, index;
 
-	if(!(image=fopen(name, "r"))){
+	if(!(image=fopen(name, "r+"))){
 		printf("Error opening file\n");
 		return 0;
 	}
@@ -173,14 +228,13 @@ int read_info(char *name)
 	offset_start = i+OFFSET_START_OFFSET;
 	app1_size = buffer[i+2]<<8 | buffer[i+3];
 
-	list_info(buffer, index+2, buffer[index]<<8|buffer[index+1]);
+	list_info(buffer, index+2, buffer[index]<<8|buffer[index+1], delete);
 
-	// Print the data
-	/*
-	for(i=0; i<app1_size+2; i++)
-		printf("%c ", buffer[index+i]);
-	printf("\n");
-	*/
+	if(delete){
+		fseek(image, 0, SEEK_SET);
+		fwrite(buffer, sizeof(unsigned char), BUFF_SIZE, image);
+	}
+
 	fclose(image);
 	free(buffer);
 	return 1;
@@ -195,9 +249,10 @@ int main(int argc, char **argv)
 
 	if(strcmp(argv[1], "-l")==0){
 		printf("List exif data\n");
-		if(!read_info(argv[2])) return 1;
+		if(!read_info(argv[2], 0)) return 1;
 	} else if(strcmp(argv[1], "-d")==0){
 		printf("Delete exif data\n");
+		if(!read_info(argv[2], 1)) return 1;
 	} else {
 		printf("Bad argument\n");
 		return 1;

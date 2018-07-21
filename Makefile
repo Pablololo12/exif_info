@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g -Wall -O3
+CFLAGS = -Wall -O1
 
 #Definición de los ficheros
 SRC = main.c
