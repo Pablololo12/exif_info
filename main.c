@@ -112,19 +112,19 @@ int show_data(unsigned char * buffer, unsigned int index, unsigned int size,
 	} else if(type==1||type==6){//Byte
 		for (i=0; i<size; i++)
 			printf("%d ",buffer[index+i]);
-	} else if(type==3||type==8){
+	} else if(type==3||type==8){//Short
 		for (i=0; i<size; i+=2) {
 			if(type==3) printf("%u ",buffer[index+i]<<8|buffer[index+i+1]);
 			else printf("%d ",buffer[index+i]<<8|buffer[index+i+1]);
 		}
-	} else if(type==4||type==9){
+	} else if(type==4||type==9){//Long
 		for (i=0; i<size; i+=4) {
 			uint32_t aux = buffer[index+i]<<24|buffer[index+i+1]<<16|
 								buffer[index+i+2]<<8|buffer[index+i+3];
 			if (type==4) printf("%u ", aux);
 			else printf("%d ", aux);
 		}
-	} else if(type==5||type==10){
+	} else if(type==5||type==10){//Rational Num/Den
 		for (i=0; i<size; i+=8) {
 			int32_t aux1 = buffer[index+i]<<24|buffer[index+i+1]<<16|
 								buffer[index+i+2]<<8|buffer[index+i+3];
@@ -156,7 +156,6 @@ int list_info(unsigned char *buffer, unsigned int index,
 	unsigned int exifoffset = 0;
 	unsigned int byte_size = 0;
 	d = index;
-	//printf("Number of entries: %d\n",size);
 	for (i=0; i<size; i++) {
 		unsigned short tag = buffer[d]<<8|buffer[d+1];
 		d+=2;
@@ -168,10 +167,11 @@ int list_info(unsigned char *buffer, unsigned int index,
 		unsigned long data = buffer[d]<<24|buffer[d+1]<<16
 							|buffer[d+2]<<8|buffer[d+3];
 		d+=4;
+		//Pointer to the next region of data
+		if(tag == 0x8769) exifoffset = data;
 		for(j=0;!delete;j++){
 			if(TagTable[j].Tag == tag || TagTable[j].Tag == 0){
 				printf("%s : ", TagTable[j].Desc);
-				if(tag == 0x8769) exifoffset = data;
 				break;
 			}
 		}
